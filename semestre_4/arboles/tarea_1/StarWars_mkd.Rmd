@@ -1,0 +1,86 @@
+---
+title: Starwars Basic Dataset Analisys
+author: "By: Ricardo De León"
+date: "Date: `r format(Sys.Date(), '%d de %B de %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+```
+
+# Introduction
+
+The "starwars" dataset is a built-in dataset available in the R package dplyr. This dataset contains information about various characters from the Star Wars universe. Below is a brief description of the variables included in this dataset:
+
+- **name**: Name of the character.
+- **height**: Height of the character in centimeters.
+- **mass**: Mass of the character in kilograms.
+- **hair_color**: Hair color of the character.
+- **skin_color**: Skin color of the character.
+- **eye_color**: Eye color of the character.
+- **birth_year**: Birth year of the character (in the Star Wars universe).
+- **sex**: Sex of the character.
+- **gender**: Gender of the character.
+- **homeworld**: Homeworld of the character.
+- **species**: Species of the character.
+- **films**: Movie participation
+- **vehicules**: type of vehicle that is able to ride
+- **starships**: type of star ships that is able to ride
+
+My question in this dataset is analyze de characters by its **height** and **sex** to define if height and gender is a condition to act in the movie.
+
+# Analysis
+
+Load dataset and show a few columns.
+
+```{r starwars}
+data("starwars")
+head(starwars)
+```
+
+## Defining The New Dataset
+
+Based on the condition we could create a filtered dataset with the few conditions (columns) and create a new dataset **starwars_df**
+
+```{r}
+starwars_df <- as.data.frame(dplyr::starwars) %>% 
+  dplyr::select(name,
+                height, 
+                sex, 
+                films
+                )
+head(starwars_df)
+```
+## Null Values
+
+```{r}
+colSums(is.na(starwars_df))
+```
+
+For our new dataset we see that there are some missing values "na" but for this task we are not going to take care about the "na" so we are going to leave it present and be aware of those in the future.
+
+## Graphic
+
+The following graphic shows the distribution of the highs according the sex of each character
+
+```{r, warning=FALSE, fig.align='center'}
+ggplot(data = starwars_df, aes(x = name, y = height, color = sex)) +
+  geom_point() +
+  labs(x = NULL,
+       y = "Height (cm)",
+       color = "Sex") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Height of Star Wars Characters by Sex")
+```
+
+# Conclusions
+
+We can see in the plot that mean of the height is between 150 and 200 cm. We could think that more male characters are in this height however most of the characters are male, so it is normal that more male fit on this height.
