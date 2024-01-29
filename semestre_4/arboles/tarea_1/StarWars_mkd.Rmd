@@ -12,6 +12,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(ggplot2)
+library(knitr)
 ```
 
 # Introduction
@@ -65,7 +66,69 @@ colSums(is.na(starwars_df))
 
 For our new dataset we see that there are some missing values "na" but for this task we are not going to take care about the "na" so we are going to leave it present and be aware of those in the future.
 
-## Graphic
+## Graphics
+
+We can analyze the distribution of heights in the following **Bar** graph
+
+```{r, warning=FALSE, fig.align='center'}
+ggplot(data = starwars_df, aes(x = name, y = height)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(x = "Characters",
+       y = "Height (cm)") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = .5)) +
+    ggtitle("Height of Star Wars Characters")
+
+```
+
+The graph shows that the distribution of heights is similar to a normal distribution.
+
+The following **Box Plot** shows better the heights out of range, or more deviated from the mean, this graph shows a better idea of max and min heights.
+
+```{r,  warning=FALSE, fig.align='center'}
+ggplot(data = starwars_df, aes(y = height)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(y = "Height (cm)") +
+  theme_minimal() + 
+    theme(plot.title = element_text(hjust = .5)) +
+  ggtitle("Box Height of Star Wars Characters")
+```
+The following lines of code show the **numeric analysis** reflecting what the graphs interpreted:
+
+```{r}
+min_height <- min(starwars_df$height, na.rm = TRUE)
+max_height <- max(starwars_df$height, na.rm = TRUE)
+mean_height <- mean(starwars_df$height, na.rm = TRUE)
+sd_height <- sd(starwars_df$height, na.rm = TRUE)
+
+cat("Height Summary Statistics:\n",
+    "Minimum Height: ", min_height, "cm\n",
+    "Maximum Height: ", max_height, "cm\n",
+    "Mean Height: ", mean_height, "cm\n",
+    "Standard Deviation (Variation) of Height: ", sd_height, "cm\n"
+)
+```
+
+
+```{r}
+
+# Calculate statistics grouped by sex
+height_stats <- starwars_df %>%
+  group_by(sex) %>%
+  summarise(
+    min_height = min(height, na.rm = TRUE),
+    max_height = max(height, na.rm = TRUE),
+    mean_height = mean(height, na.rm = TRUE),
+    sd_height = sd(height, na.rm = TRUE)
+  )
+
+# Display the statistics as a table
+kable(height_stats, caption = "Height Statistics Grouped by Sex", align = "c")
+
+```
+
+
 
 The following graphic shows the distribution of the highs according the sex of each character
 
