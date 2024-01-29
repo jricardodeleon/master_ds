@@ -1,0 +1,56 @@
+---
+title: "House Pricing Analysis 'AMES' Dataset"
+author: "Ricardo De León Flores"
+output: html_document
+date: "2024-01-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+# install.packages("tidymodels")
+library(tidymodels)
+```
+# Analysis
+
+Load the datase ames
+
+```{r}
+data(ames)
+head(ames)
+```
+
+Lest create a new working copy from ames main dataset
+
+```{r}
+ames_df <- data.frame(ames)
+```
+
+```{r}
+tidymodels_prefer()
+
+ggplot(ames_df, aes(x = Sale_Price)) + 
+  geom_histogram(bins = 50, col= "white")
+```
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
