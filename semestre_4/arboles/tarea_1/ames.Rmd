@@ -1,6 +1,6 @@
 ---
 title: "House Pricing Analysis 'AMES' Dataset"
-author: "Ricardo De León Flores"
+author: "Ricardo De León Flores."
 output: html_document
 date: "2024-01-29"
 ---
@@ -24,6 +24,7 @@ Lest create a new working copy from ames main dataset
 
 ```{r}
 ames_df <- data.frame(ames)
+colSums(is.na(ames_df))
 ```
 
 ```{r}
