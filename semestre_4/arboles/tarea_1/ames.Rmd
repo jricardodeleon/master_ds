@@ -1,8 +1,11 @@
 ---
 title: "House Pricing Analysis 'AMES' Dataset"
-author: "Ricardo De León Flores"
-output: html_document
-date: "2024-01-29"
+author: "By: Ricardo De León"
+date: "Date: `r format(Sys.Date(), '%d de %B de %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
@@ -10,7 +13,32 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 # install.packages("tidymodels")
 library(tidymodels)
+# install.packages("mdsr")
+library(mdsr)
+library(ggplot2)
 ```
+# Introduction
+
+The Ames Housing dataset is a popular dataset in the field of predictive modeling and machine learning. It contains information about various attributes of residential homes in Ames, Iowa, USA. This dataset is commonly used for tasks such as regression analysis and predictive modeling to predict house prices based on different features.
+
+## Dataset Description:
+
+The dataset comprises **2930** observations and **74** variables, covering a wide range of attributes related to residential properties. Some of the key variables include:
+
+- **Sale_Price**: The sale price of the property.
+- **Year_Built**: The year when the property was built.
+- **Overall_Qual**: Overall material and finish quality of the house.
+- **Overall_Cond**: Overall condition rating of the house.
+- **Lot_Area**: Lot size in square feet.
+- **Total_Bsmt_SF**: Total basement area in square feet.
+- **Bedroom_AbvGr**: Number of bedrooms above ground.
+- **Garage_Area**: Garage area in square feet.
+- **Neighborhood**: Physical locations within Ames city limits.
+
+This dataset is often used for tasks such as predicting house prices based on various features like size, location, condition, etc.
+
+The **question** worked in this short book is about the increment of house sales through the years.
+
 # Analysis
 
 Load the datase ames
@@ -26,31 +54,71 @@ Lest create a new working copy from ames main dataset
 ames_df <- data.frame(ames)
 ```
 
+**Bars** graph as firs approach analysis visualization about the prices, with this graph we can se that there is a considerable variety of sales.
+
 ```{r}
-tidymodels_prefer()
+ames_df %>% 
+  ggplot(aes(Sale_Price, ..density..)) + 
+  geom_histogram(bins = 30) + 
+  geom_density() + 
+  labs(x = "Sales", y = "Density") +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ggtitle("Sales Price")
 
-ggplot(ames_df, aes(x = Sale_Price)) + 
-  geom_histogram(bins = 50, col= "white")
+
 ```
 
+```{r}
+# Determine the minimum and maximum year
+min_year <- min(ames_df$Year_Built)
+max_year <- max(ames_df$Year_Built)
 
+# Create breaks every 20 years from min to max
+breaks <- c(seq(min_year, max_year, by = 20), max_year)
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+ggplot(ames_df, aes(x = factor(Year_Built))) + 
+  geom_bar() +
+  labs(x = "Timeline", y = "# Properties") +
+  scale_x_discrete(breaks = breaks, labels = breaks) +
+  theme(axis.text.x = element_text(hjust = 1),
+        plot.title = element_text(hjust = .5)) +
+  ggtitle("Properties by Year Built")
 ```
 
-## Including Plots
+The graph above gives and idea about the behavior of the sales trough the years, we can see that there are many peaks in different times we could research looking forward in other analysis. 
 
-You can also embed plots, for example:
+Now, if would like to know what neighborhood has better sales we can create a graph to show this relation between **Sales_Price** and **Neighborhood** variables
+```{r}
+# Count the number of sales by neighborhood
+neighborhood_counts <- table(ames_df$Neighborhood)
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+# Convert the counts to a data frame
+neighborhood_counts_df <- as.data.frame(neighborhood_counts)
+names(neighborhood_counts_df) <- c("Neighborhood", "Sales_Count")
+
+# Sort the data frame by sales count
+neighborhood_counts_df <- neighborhood_counts_df[order(-neighborhood_counts_df$Sales_Count),]
+
+# Bar plot
+ggplot(neighborhood_counts_df, aes(x = reorder(Neighborhood, Sales_Count), y = Sales_Count)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Neighborhood", y = "Number of Sales") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = .5)) +
+  ggtitle("Number of Sales by Neighborhood (Bar Plot)")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+This last graph graph shows the variation of prices on each neighborhood
+
+```{r}
+ggplot(ames_df, aes(x=Neighborhood,y=Sale_Price)) + geom_boxplot(color="black", fill="orange")+
+theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+scale_y_continuous(labels = comma)
+```
+
+# Conclusions:
+
+This dataset has 74 variables, we can see that with a few variables we have many analysis by just checking sales and neighborhoods, the we could investigate more why there are more sales in those places like, maybe because how is bult, equipment of the house, amenities, etc...
+
+
