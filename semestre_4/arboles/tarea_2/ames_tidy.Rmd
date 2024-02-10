@@ -1,5 +1,5 @@
 ---
-title: "House Pricing Analysis 'AMES' Dataset"
+title: "House Pricing Prediction 'AMES' Dataset"
 author: "Ricardo De León Flores."
 date: "Date: `r format(Sys.Date(), '%d de %B de %Y')`"
 output: 
@@ -118,8 +118,38 @@ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
 scale_y_continuous(labels = comma)
 ```
 
-# Conclusions:
+# Reression Model
 
-This dataset has 74 variables, we can see that with a few variables we have many analysis by just checking sales and neighborhoods, the we could investigate more why there are more sales in those places like, maybe because how is bult, equipment of the house, amenities, etc...
+## Model using Decision Tree
 
+First step is to split into **train** and **test** the dataset, using a seed to work with the same results always
+```{r}
+set.seed(123)
+split_initial <- initial_split(data = ames_df,
+              prop = 0.8, # training proportion
+              strata = Sale_Price, # Variable objetivo
+              # hace el split lo más distribuido del precio automaticamente
+              )
+
+data_train <- training(split_initial)
+data_test <- testing(split_initial)
+```
+
+Next step is to apply the **recipe** and create a transformation, should be applied to both, train and test datasets.
+
+```{r echo=T, results='hide'}
+
+transformer <- recipe(formula = Sale_Price ~.,
+        data = data_train) |>
+        step_naomit(all_predictors()) |> 
+        step_nzv(all_predictors()) |> 
+        step_center(all_numeric(), -all_outcomes()) |> 
+        step_scale(all_numeric(), -all_outcomes()) |> 
+        step_dummy(all_nominal(), -all_outcomes()) 
+
+transformer_fit <- prep(transformer)
+
+data_train_prep <- bake(transformer_fit, new_data = data_train)
+data_test_prep <- bake(transformer_fit, new_data = data_test)
+```
 
