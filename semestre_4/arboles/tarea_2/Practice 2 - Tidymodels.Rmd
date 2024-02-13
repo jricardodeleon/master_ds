@@ -1,0 +1,365 @@
+---
+title: "Ames - Tidymodels"
+author: "Lilivette Cruz"
+date: "2024-02-10"
+output: 
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(DataExplorer)
+library(tidyverse)
+library(mosaicData)
+library(tidymodels)
+library(modeldata)
+library(ggpubr)
+library(tictoc)
+```
+
+<center>![](https://i.morioh.com/210415/777c274d.webp)</center>
+
+## Dataset content
+
+The Ames Housing dataset contains information about residential properties in Ames, Iowa, USA. It is often used in regression modeling tasks, particularly for predicting house prices.
+
+### Variables description
+
+- **MSSubClass**: Identifies the type of dwelling involved in the sale.
+- **MSZoning**: Identifies the general zoning classification of the sale.
+- **LotFrontage**: Linear feet of street connected to property.
+- **LotArea**: Lot size in square feet.
+- **Street**: Type of road access to property.
+- **Alley**: Type of alley access to property.
+- **LotShape**: General shape of property.
+- **LandContour**: Flatness of the property.
+- **Utilities**: Type of utilities available.
+- **LotConfig**: Lot configuration.
+- **LandSlope**: Slope of property.
+- **Neighborhood**: Physical locations within Ames city limits.
+- **Condition1**: Proximity to various conditions.
+- **Condition2**: Proximity to various conditions (if more than one is present).
+- **BldgType**: Type of dwelling.
+- **HouseStyle**: Style of dwelling.
+- **OverallQual**: Overall material and finish quality of the house.
+- **OverallCond**: Overall condition rating of the house.
+- **YearBuilt**: Original construction date.
+- **YearRemodAdd**: Remodel date (same as construction date if no remodeling or additions).
+- **RoofStyle**: Type of roof.
+- **RoofMatl**: Roof material.
+- **Exterior1st**: Exterior covering on house.
+- **Exterior2nd**: Exterior covering on house (if more than one material).
+- **MasVnrType**: Masonry veneer type.
+- **MasVnrArea**: Masonry veneer area in square feet.
+- **ExterQual**: Exterior material quality.
+- **ExterCond**: Present condition of the material on the exterior.
+- **Foundation**: Type of foundation.
+- **BsmtQual**: Height of the basement.
+- **BsmtCond**: General condition of the basement.
+- **BsmtExposure**: Walkout or garden level basement walls.
+- **BsmtFinType1**: Quality of basement finished area.
+- **BsmtFinSF1**: Type 1 finished square feet.
+- **BsmtFinType2**: Quality of second finished area (if present).
+- **BsmtFinSF2**: Type 2 finished square feet.
+- **BsmtUnfSF**: Unfinished square feet of basement area.
+- **TotalBsmtSF**: Total square feet of basement area.
+- **Heating**: Type of heating.
+- **HeatingQC**: Heating quality and condition.
+- **CentralAir**: Central air conditioning.
+- **Electrical**: Electrical system.
+- **1stFlrSF**: First Floor square feet.
+- **2ndFlrSF**: Second floor square feet.
+- **LowQualFinSF**: Low quality finished square feet (all floors).
+- **GrLivArea**: Above grade (ground) living area square feet.
+- **BsmtFullBath**: Basement full bathrooms.
+- **BsmtHalfBath**: Basement half bathrooms.
+- **FullBath**: Full bathrooms above grade.
+- **HalfBath**: Half baths above grade.
+- **Bedroom**: Number of bedrooms above basement level.
+- **Kitchen**: Number of kitchens.
+- **KitchenQual**: Kitchen quality.
+- **TotRmsAbvGrd**: Total rooms above grade (does not include bathrooms).
+- **Functional**: Home functionality rating.
+- **Fireplaces**: Number of fireplaces.
+- **FireplaceQu**: Fireplace quality.
+- **GarageType**: Garage location.
+- **GarageYrBlt**: Year garage was built.
+- **GarageFinish**: Interior finish of the garage.
+- **GarageCars**: Size of garage in car capacity.
+- **GarageArea**: Size of garage in square feet.
+- **GarageQual**: Garage quality.
+- **GarageCond**: Garage condition.
+- **PavedDrive**: Paved driveway.
+- **WoodDeckSF**: Wood deck area in square feet.
+- **OpenPorchSF**: Open porch area in square feet.
+- **EnclosedPorch**: Enclosed porch area in square feet.
+- **3SsnPorch**: Three season porch area in square feet.
+- **ScreenPorch**: Screen porch area in square feet.
+- **PoolArea**: Pool area in square feet.
+- **PoolQC**: Pool quality.
+- **Fence**: Fence quality.
+- **MiscFeature**: Miscellaneous feature not covered in other categories.
+- **MiscVal**: $Value of miscellaneous feature.
+- **MoSold**: Month Sold (MM).
+- **YrSold**: Year Sold (YYYY).
+- **SaleType**: Type of sale.
+- **SaleCondition**: Condition of sale.
+
+## Exploration
+
+### Dataset load and initial preview
+```{r ames}
+data(ames)
+head(ames)
+nrow(ames)
+ncol(ames)
+colnames(ames)
+summary(ames)
+```
+
+## Data partitioning
+```{r partitioning}
+#Split train/Test
+data <- ames
+#Using the current time (in milliseconds or seconds) as a seed. 
+set.seed(as.numeric(format(Sys.time(), "%OS3")))
+
+tic("Data Splitting") # Start timer for data splitting
+split_inicial <- initial_split(data= data,
+              prop= 0.8, #training proportion
+              strata = Sale_Price #target variable
+              )
+data_train <- training(split_inicial)
+data_test <- testing(split_inicial)
+toc() # End timer for data splitting
+
+summary(data_train$Sale_Price)
+summary(data_test$Sale_Price)
+```
+
+
+## Data Pre-processing
+```{r pre_processing}
+#Recipes
+
+#Set Transformations
+#recipe()
+transformer <- recipe(formula= Sale_Price ~.,
+       data=data_train) %>% 
+      step_naomit(all_predictors()) %>% 
+      step_nzv (all_predictors()) %>% 
+      step_center(all_numeric(),-all_outcomes()) %>% 
+      step_scale(all_numeric(),-all_outcomes()) %>% 
+      step_dummy(all_nominal(),-all_outcomes()) 
+
+transformer      
+
+#Training recipe
+#prep()
+tic("Data Preprocessing") # Start timer for data preprocessing
+
+transformer_fit <- prep(transformer)
+
+#Apply transformations to datasets
+#bake()
+
+data_train_prep <- bake(transformer_fit,new_data = data_train)
+data_test_prep <- bake(transformer_fit,new_data = data_test)
+toc() # End timer for data preprocessing
+
+
+head(data_train_prep)
+
+```
+## Regression Model
+
+Create a price prediction regression model 
+
+<center>![](https://i0.wp.com/vitalflux.com/wp-content/uploads/2023/12/Difference-between-decision-tree-and-random-forest.png?fit=1024%2C1024&ssl=1)</center>
+
+### Decision Tree
+
+Training with hyperparameter optimization and cross-validation
+
+```{r r_dt_hyperparameter}
+#Choose model
+model_tree <- decision_tree(mode = "regression", 
+              tree_depth = tune(),
+              min_n = tune()) %>% 
+      set_engine(engine = "rpart") #paqueteria
+
+#Cross Validation
+tic("Cross Validation") # Start timer for cross validation
+cv_folds <- vfold_cv(data = data_train,
+         v = 5, #numero de particiones
+         strata = Sale_Price #variable objetivo
+         )
+toc() # End timer for cross validation
+
+# Hyperparameter optimization
+
+#Random Grid
+hiperpar_grid_1 <-  grid_random(
+  tree_depth(range = c(1,10),trans = NULL),
+  min_n( range = c(2,50),trans = NULL ),
+  size = 100
+)
+head(hiperpar_grid_1)
+
+#Grid search
+hiperpar_grid_2 <- grid_regular(
+  tree_depth(range = c(1,10),trans = NULL),
+  min_n( range = c(2,50),trans = NULL ),
+  levels = c(10,49)
+)
+head(hiperpar_grid_2)
+
+#Grid search
+hiperpar_grid_3 <- grid_regular(
+  tree_depth(range = c(1,10),trans = NULL),
+  min_n( range = c(2,50),trans = NULL ),
+  levels = c(10,10)
+)
+head(hiperpar_grid_3)
+
+#Optimization
+tic("Hyperparameter Optimization") # Start timer for hyperparameter optimization
+
+grid_fit <- tune_grid(
+  object = model_tree,
+  #Pre procesamiento de los datos
+  #Recipe
+  preprocessor = transformer,
+  #Resample que se crearon sin preprocesar
+  resamples = cv_folds,
+  #Metricas evaluacion
+  metrics = metric_set(rmse,mae),
+  control = control_grid(save_pred = TRUE),
+  grid = hiperpar_grid_3
+)
+toc() # End timer for hyperparameter optimization
+```
+
+
+Measure execution times for comparison, using the tictoc package in R.
+
+```{r r_dt_execution_times}
+
+```
+
+Evaluation of training error (through visualizations)
+
+```{r r_dt_train_error_evaluation}
+
+grid_fit
+
+grid_fit %>% unnest(.metrics)
+
+grid_fit %>% collect_metrics(summarize = TRUE)
+
+grid_fit %>% show_best(metric = "rmse",n=5)
+
+grid_fit %>% show_best(metric = "mae",n=5)
+
+#Evolucion del error
+
+#Hiperparametros por separado
+grid_fit %>% collect_metrics(summarize = TRUE) %>% 
+  filter(.metric=="rmse") %>% 
+  pivot_longer(cols = c(tree_depth,min_n),
+               values_to = "value",
+               names_to = "parameter") %>% 
+  ggplot(aes(x=value,y=mean,color=parameter)) +
+  geom_point() + geom_line() +
+  facet_wrap(facets = vars(parameter),nrow=2,scales = "free")
+
+#Hiperparametros en conjunto
+grid_fit %>% collect_metrics(summarize = TRUE) %>% 
+  filter(.metric=="rmse") %>%
+  ggplot(aes(x=tree_depth,y=min_n,color=mean,size=mean)) +
+  geom_point() +
+  ggtitle("Evolucion del error en función de los hiperparametros")
+
+p1 <- grid_fit %>% collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x=.metric,y=.estimate,fill=.metric,color=.metric)) +
+  geom_boxplot() +
+  coord_flip()
+
+p2 <-  grid_fit %>% collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x=.estimate,fill=.metric)) +
+  geom_density(alpha=0.5) 
+
+ggarrange(p1,p2,nrow=2)
+```
+
+
+Final model
+
+```{r r_dt_final_model}
+#Choose the best model
+
+best_hip <- select_best(grid_fit,metric="rmse")
+
+final_model_tree <- finalize_model(x=model_tree,
+                                   parameters = best_hip )
+
+final_model_tree
+
+final_model_tree_fit <- final_model_tree %>% 
+  fit(formula = Sale_Price ~.,
+      data = data_train_prep)
+```
+
+
+Validation with test data
+
+```{r r_dt_validation}
+predicciones <- final_model_tree_fit %>% 
+  predict(new_data = data_test_prep,
+          type = "numeric")
+
+predicciones %>%  head()
+    
+predicciones <- predicciones %>% bind_cols(data_test_prep %>% select(Sale_Price))  
+
+rmse(predicciones,truth = Sale_Price, estimate= .pred)
+
+
+#Plot prediction & residuals
+
+p1 <- predicciones %>%  ggplot(
+  aes(x = Sale_Price, y = .pred)
+) +
+  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "firebrick") +
+  labs(title = "Valor predicho vs valor real") +
+  theme_bw()
+
+p2 <- predicciones %>% ggplot(
+  aes(x = Sale_Price - .pred)
+) +
+  geom_density() + 
+  labs(title = "Distribución residuos del modelo") +
+  theme_bw()
+
+ggarrange(plotlist = list(p1, p2)) %>%
+  annotate_figure(
+    top = text_grob("Distribución residuos", size = 15, face = "bold")
+  )
+
+```
+
+### Random Forest
+
+## Classification Model
+
+Build a price classification model based on whether the price is in the 75th quantile.
+
+### Decision Tree
+
+### Random Forest
+
+## Conclusions

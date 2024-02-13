@@ -1,0 +1,367 @@
+---
+title: "House Pricing Prediction 'AMES' Dataset"
+author: "Ricardo De León Flores."
+date: "Date: `r format(Sys.Date(), '%d de %B de %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+# install.packages("tidymodels")
+library(tidymodels)
+# install.packages("mdsr") 
+# install.packages("ggpubr")
+# install.packages("tictoc")
+# install.packages("rpart")
+# install.packages('caret')
+library(caret)
+library(mdsr)
+library(ggplot2)
+library(tictoc)
+library(ggpubr)
+library(rpart)
+```
+
+# Classification
+
+## Desicion Tree
+
+### Data setup
+
+In order to start with classification we need to select only numerical columns.
+
+```{r}
+# create a new ames working copy
+ames_df <- data.frame(ames)
+
+```
+
+Visualize a box plot from the Sales_price column
+
+```{r}
+my_colors <- c("#1b9e77", "#d95f02")
+
+ggplot(ames, aes(y = Sale_Price)) +
+  geom_boxplot(fill = my_colors[1], color = my_colors[2], size = 1.5) +
+  labs(y = "Sale Price ($)", x = "") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.y = element_text(size = 12),  
+        axis.title.x = element_text(size = 14, face = "bold"), 
+        axis.title.y = element_text(size = 14, face = "bold")) +  
+  ggtitle("Distribution of Sale Price") + 
+  theme(plot.title = element_text(hjust = 0.5))  
+```
+
+Build a price classification model based on whether the price is in the 75th quantile.
+
+
+```{r}
+# Calculate the 75th quantile of Sale_Price
+quantile_75 <- quantile(ames$Sale_Price, probs = 0.75)
+
+# Subset the ames dataset to get only rows where Sale_Price is in the 75th quantile
+data <- ames[ames$Sale_Price <= quantile_75, ]
+
+# Rename the dataframe to "data"
+data_df <- as.data.frame(data)
+
+# Convert the outcome variable to a factor
+data_df$Sale_Price <- factor(data_df$Sale_Price)
+
+# View the first few rows of the dataframe
+head(data_df)
+```
+
+Now we can visualize the 75 quantile data split from the rest of data
+
+```{r}
+ggplot(ames, aes(y = Sale_Price, color = ifelse(Sale_Price >= quantile_75, "75th Quantile", "Other Quantiles"))) +
+  geom_boxplot() + # Boxplot for all data
+  geom_point(aes(x = 1), size = 3) +  # Overlay points
+  scale_color_manual(values = c("75th Quantile" = "red", "Other Quantiles" = "blue")) +  # Custom color for points
+  labs(x = "", y = "Sale Price ($)", color = "") +  # Label axes and legend
+  coord_flip() +  # Rotate the axes
+  theme_minimal() +  # Apply minimal theme
+  theme(legend.position = "bottom")  # Move legend to the bottom
+```
+
+### Split train and test
+
+First step is to split into **train** and **test** the dataset, using a seed to work with the same results always.
+```{r}
+set.seed(123)
+split_initial <- initial_split(data = data_df,
+              prop = 0.8, # training proportion
+              strata = Sale_Price, # Variable objetivo
+              # hace el split lo más distribuido del precio automaticamente
+              )
+
+data_train <- training(split_initial)
+data_test <- testing(split_initial)
+```
+
+
+### Recipe
+
+Next step is to apply the **recipe** and create a transformation, should be applied to both, train and test datasets.
+
+```{r echo=T, results='hide'}
+
+transformer <- recipe(formula = Sale_Price ~.,
+        data = data_train) |>
+        step_naomit(all_predictors()) |> 
+        step_nzv(all_predictors()) |> 
+        step_center(all_numeric(), -all_outcomes()) |> 
+        step_scale(all_numeric(), -all_outcomes()) |> 
+        step_dummy(all_nominal(), -all_outcomes()) 
+
+transformer_fit <- prep(transformer)
+
+data_train_prep <- bake(transformer_fit, new_data = data_train)
+data_test_prep <- bake(transformer_fit, new_data = data_test)
+```
+
+### H-parameters and C-Validation
+
+Once we have the recipe, continue with the model, hyper-parameters and cross-validation
+
+```{r}
+#Define the hyper parameter to optimize
+
+model_tree <- decision_tree(mode = "classification", #regression, classification
+              tree_depth = tune(),
+              min_n = tune()) %>% 
+      set_engine(engine = "rpart")
+
+cv_folds <- vfold_cv(data = data_train,
+         v = 5, #numero de particiones
+         strata = Sale_Price #variable objetivo
+         )
+```
+
+
+### Grid Search
+
+Selected **Grid regular** as the grid option to select the hyper-parameters.
+
+
+```{r}
+tic("Classification Decision tree time")
+#Grid search (Example)
+hiperpar_grid <- grid_regular(
+  #Rango de busqueda de cada hiperparametro
+  tree_depth(range = c(1,10),trans = NULL),
+  min_n( range = c(2,50),trans = NULL ),
+  #numero de valores para cada hiperametro
+  levels = c(10,10)
+)
+
+# Define classification metrics
+classification_metrics <- metric_set(
+  accuracy
+)
+
+# Optimization
+grid_fit <- tune_grid(
+  object = model_tree,
+  preprocessor = transformer,
+  resamples = cv_folds,
+  metrics = classification_metrics,  # Use classification metrics
+  control = control_grid(save_pred = TRUE),
+  grid = hiperpar_grid
+)
+time_class_decision_tree_model <- toc()
+```
+
+### Evaluation of training error
+
+
+```{r}
+# Show metrics
+grid_fit %>% 
+  unnest(.metrics)
+
+# Summarize metrics
+grid_fit %>% 
+  collect_metrics(summarize = TRUE)
+
+# Show best models based on RMSE
+grid_fit %>% 
+  show_best(metric = "accuracy", n = 5)
+
+# Create boxplot
+p1 <- grid_fit %>% 
+  collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x = .metric, y = .estimate, fill = .metric, color = .metric)) +
+  geom_boxplot() +
+  coord_flip()
+
+# Create density plot
+p2 <-  grid_fit %>% 
+  collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x = .estimate, fill = .metric)) +
+  geom_density(alpha = 0.5) 
+
+# Arrange plots
+ggarrange(p1, p2, nrow = 2)
+```
+
+
+### Final Model
+
+```{r}
+# Select the best hyperparameters based on accuracy
+best_hip <- select_best(grid_fit, metric = "accuracy")
+
+# Finalize the model with the best hyperparameters
+final_model_tree <- finalize_model(x = model_tree, parameters = best_hip)
+
+# Fit the final model
+final_model_tree_fit <- final_model_tree %>% 
+  fit(formula = Sale_Price ~ ., data = data_train_prep)
+```
+
+
+### Validation
+
+```{r}
+# Make predictions
+predicciones <- final_model_tree_fit %>% 
+  predict(new_data = data_test_prep, type = "class")
+
+# Create a confusion matrix
+confusion <- confusionMatrix(predicciones$.pred_class, data_test_prep$Sale_Price)
+
+confusion$overall
+
+```
+
+
+## Random Forest
+
+```{r}
+# Define the model for Random Forest
+model_rf <- rand_forest(mode = "classification",
+                        mtry = tune(),
+                        trees = tune(),
+                        min_n = tune()) %>%
+           set_engine("ranger")
+
+# Perform cross-validation
+cv_folds <- vfold_cv(data = data_train,
+                     v = 5,  # Number of folds
+                     strata = Sale_Price)  # Stratify by Sale_Price
+```
+
+### Grid Search
+
+Selected **Grid regular** as the grid option to select the hyper-parameters.
+
+
+```{r}
+tic("Classification Random Forest time")
+#Grid search (Example)
+hiperpar_grid_rf <- grid_regular(
+  mtry(range = c(2, ncol(data_train) - 1)),
+  trees(range = c(50, 200)),
+  min_n(range = c(1, 10))
+)
+
+# Define classification metrics
+classification_metrics_rf <- metric_set(
+  accuracy
+)
+
+# Optimization
+grid_fit_rf <- tune_grid(
+  object = model_rf,
+  preprocessor = transformer,
+  resamples = cv_folds,
+  metrics = classification_metrics_rf,  # Use classification metrics
+  control = control_grid(save_pred = TRUE),
+  grid = hiperpar_grid_rf
+)
+time_class_random_fores_model <- toc()
+```
+
+
+### Evaluation of training error
+
+
+```{r}
+# Show metrics
+grid_fit_rf %>% 
+  unnest(.metrics)
+
+# Summarize metrics
+grid_fit_rf %>% 
+  collect_metrics(summarize = TRUE)
+
+# Show best models based on RMSE
+grid_fit_rf %>% 
+  show_best(metric = "accuracy", n = 5)
+
+# Create boxplot
+p1_rf <- grid_fit_rf %>% 
+  collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x = .metric, y = .estimate, fill = .metric, color = .metric)) +
+  geom_boxplot() +
+  coord_flip()
+
+# Create density plot
+p2_rf <-  grid_fit_rf %>% 
+  collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x = .estimate, fill = .metric)) +
+  geom_density(alpha = 0.5) 
+
+# Arrange plots
+ggarrange(p1_rf, p2_rf, nrow = 2)
+```
+
+### Final Model
+
+```{r}
+# Select the best hyperparameters based on accuracy
+best_hip_rf <- select_best(grid_fit_rf, metric = "accuracy")
+
+# Finalize the model with the best hyperparameters
+final_model_tree_rf <- finalize_model(x = model_rf, parameters = best_hip_rf)
+
+# Fit the final model
+final_model_tree_fit_rf <- final_model_tree_rf %>% 
+  fit(formula = Sale_Price ~ ., data = data_train_prep)
+```
+
+
+### Validation
+
+```{r}
+# Make predictions
+predicciones_rf <- final_model_tree_fit_rf %>% 
+  predict(new_data = data_test_prep, type = "class")
+
+# Create a confusion matrix
+confusion_rf <- confusionMatrix(predicciones_rf$.pred_class, data_test_prep$Sale_Price)
+
+confusion_rf$overall
+
+```
+
+
+
+# Conclusions
+
+In classification models the accuracy metrics shows a better result with the model **Random Forest** with an accuracy of 0.020454545 whereas **Decision Tree** has an accuracy of 0.015909091.
+
+
+
+
+
+
+
+

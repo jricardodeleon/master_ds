@@ -13,9 +13,13 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 # install.packages("tidymodels")
 library(tidymodels)
-# install.packages("mdsr")
+# install.packages("mdsr") 
+# install.packages("ggpubr")
+# install.packages("tictoc")
 library(mdsr)
 library(ggplot2)
+library(tictoc)
+library(ggpubr)
 ```
 # Introduction
 
@@ -118,9 +122,11 @@ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
 scale_y_continuous(labels = comma)
 ```
 
-# Reression Model
+# Reression
 
-## Model using Decision Tree
+## Model Decision Tree
+
+### Split train and test
 
 First step is to split into **train** and **test** the dataset, using a seed to work with the same results always
 ```{r}
@@ -134,6 +140,8 @@ split_initial <- initial_split(data = ames_df,
 data_train <- training(split_initial)
 data_test <- testing(split_initial)
 ```
+
+### Recipe
 
 Next step is to apply the **recipe** and create a transformation, should be applied to both, train and test datasets.
 
@@ -152,4 +160,265 @@ transformer_fit <- prep(transformer)
 data_train_prep <- bake(transformer_fit, new_data = data_train)
 data_test_prep <- bake(transformer_fit, new_data = data_test)
 ```
+
+### H-parameters and C-Validation
+
+Once we have the recipe, continue with the model, hyper-parameters and cross-validation
+
+```{r}
+#Define the hyper parameter to optimize
+
+model_tree <- decision_tree(mode = "regression", #regression, classification
+              tree_depth = tune(),
+              min_n = tune()) %>% 
+      set_engine(engine = "rpart")
+
+cv_folds <- vfold_cv(data = data_train,
+         v = 5, #numero de particiones
+         strata = Sale_Price #variable objetivo
+         )
+```
+
+### Grid Search
+
+Selected **Grid regular** as the grid option to select the hyper-parameters.
+
+```{r}
+
+tic("Decision tree time")
+#Grid search (Example)
+hiperpar_grid <- grid_regular(
+  #Rango de busqueda de cada hiperparametro
+  tree_depth(range = c(1,10),trans = NULL),
+  min_n( range = c(2,50),trans = NULL ),
+  #numero de valores para cada hiperametro
+  levels = c(10,10)
+)
+
+#Optimization
+grid_fit <- tune_grid(
+  object = model_tree,
+  #Pre procesamiento de los datos
+  #Recipe
+  preprocessor = transformer,
+  #Resample que se crearon sin preprocesar
+  resamples = cv_folds,
+  #Metricas evaluacion
+  metrics = metric_set(rmse,mae),
+  control = control_grid(save_pred = TRUE),
+  grid = hiperpar_grid
+)
+time_decision_tree_model <- toc()
+```
+
+### Evaluation of training error
+
+```{r echo=T, results='hide'}
+grid_fit
+
+grid_fit %>% unnest(.metrics)
+
+grid_fit %>% collect_metrics(summarize = TRUE)
+
+grid_fit %>% show_best(metric = "rmse",n=5)
+
+grid_fit %>% show_best(metric = "mae",n=5)
+
+p1 <- grid_fit %>% collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x=.metric,y=.estimate,fill=.metric,color=.metric)) +
+  geom_boxplot() +
+  coord_flip()
+
+p2 <-  grid_fit %>% collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x=.estimate,fill=.metric)) +
+  geom_density(alpha=0.5) 
+
+ggarrange(p1,p2,nrow=2)
+```
+### Final Model
+
+Select the best model according with the hyper-parameters.
+
+```{r}
+best_hip <- select_best(grid_fit,metric="rmse")
+
+final_model_tree <- finalize_model(x=model_tree,
+                                   parameters = best_hip )
+final_model_tree_fit <- final_model_tree %>% 
+  fit(formula = Sale_Price ~.,
+      data = data_train_prep)
+```
+
+### Model Validation
+
+```{r}
+predicciones <- final_model_tree_fit %>% 
+  predict(new_data = data_test_prep,
+          type = "numeric")
+
+predicciones %>%  head()
+    
+predicciones <- predicciones %>% bind_cols(data_test_prep %>% select(Sale_Price))  
+
+rmse(predicciones,truth = Sale_Price, estimate= .pred)
+```
+### Residuals & Predictions
+
+```{r}
+p1 <- predicciones %>%  ggplot(
+  aes(x = Sale_Price, y = .pred)
+) +
+  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "firebrick") +
+  labs(title = "Valor predicho vs valor real") +
+  theme_bw()
+
+p2 <- predicciones %>% ggplot(
+  aes(x = Sale_Price - .pred)
+) +
+  geom_density() + 
+  labs(title = "Distribución residuos del modelo") +
+  theme_bw()
+
+ggarrange(plotlist = list(p1, p2)) %>%
+  annotate_figure(
+    top = text_grob("Distribución residuos", size = 15, face = "bold")
+  )
+```
+
+## Model Random Forest
+
+### Split train and test
+
+```{r}
+# Define the hyper parameters to optimize
+model_rf <- rand_forest(mode = "regression",
+                        mtry = tune(), # Number of variables to sample as candidates at each split
+                        trees = tune()) %>% 
+  set_engine("ranger")
+
+# Cross Validation
+cv_folds_rf <- vfold_cv(data = data_train,
+                     v = 5, # Number of folds
+                     strata = Sale_Price # Target variable
+)
+```
+
+### Grid Search
+
+Selected **Grid regular** as the grid option to select the hyper-parameters.
+
+```{r echo=FALSE }
+# install.packages("ranger")
+library(ranger)
+
+tic("Random forest time")
+#Grid search (Example)
+hiperpar_grid_rf <- grid_regular(
+  mtry(range = c(2, ncol(data_train) - 1)),
+  trees(c(500, 1000)) # Number of trees
+)
+
+# Define the workflow
+rf_wf <- workflow() %>%
+  add_model(model_rf) %>%
+  add_formula(Sale_Price ~ .) # Assuming 'Sale_Price' is the target variable
+
+# Tune the model
+grid_fit_rf <- tune_grid(
+  object = rf_wf,
+  resamples = cv_folds_rf,
+  grid = hiperpar_grid_rf,
+  metrics = metric_set(rmse),
+  control = control_grid(verbose = TRUE)
+)
+time_random_forest_model <- toc()
+```
+
+### Evaluation of training error
+
+```{r}
+grid_fit_rf
+
+grid_fit_rf %>% unnest(.metrics)
+
+grid_fit_rf %>% collect_metrics(summarize = TRUE)
+
+grid_fit_rf %>% show_best(metric = "rmse",n=5)
+
+p1_rf <- grid_fit_rf %>% collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x=.metric,y=.estimate,fill=.metric,color=.metric)) +
+  geom_boxplot() +
+  coord_flip()
+
+p2_rf <-  grid_fit_rf %>% collect_metrics(summarize = FALSE) %>% 
+  ggplot(aes(x=.estimate,fill=.metric)) +
+  geom_density(alpha=0.5) 
+
+ggarrange(p1_rf,p2_rf,nrow=2)
+```
+
+### Final Model
+
+Select the best model according with the hyper-parameters.
+
+```{r}
+best_hip_rf <- select_best(grid_fit_rf,metric="rmse")
+
+final_model_tree_rf <- finalize_model(x=model_rf,
+                                   parameters = best_hip_rf )
+final_model_tree_fit_rf <- final_model_tree_rf %>% 
+  fit(formula = Sale_Price ~.,
+      data = data_train_prep)
+```
+
+### Model Validation
+
+```{r}
+predicciones_rf <- final_model_tree_fit_rf %>% 
+  predict(new_data = data_test_prep,
+          type = "numeric")
+
+predicciones_rf %>%  head()
+    
+predicciones_rf <- predicciones_rf %>% bind_cols(data_test_prep %>% select(Sale_Price))  
+
+rmse(predicciones_rf,truth = Sale_Price, estimate= .pred)
+```
+
+
+### Residuals & Predictions
+
+
+```{r}
+
+p1_rf <- predicciones_rf %>%  ggplot(
+  aes(x = Sale_Price, y = .pred)
+) +
+  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "firebrick") +
+  labs(title = "Valor predicho vs valor real") +
+  theme_bw()
+
+p2_rf <- predicciones_rf %>% ggplot(
+  aes(x = Sale_Price - .pred)
+) +
+  geom_density() + 
+  labs(title = "Distribución residuos del modelo") +
+  theme_bw()
+
+ggarrange(plotlist = list(p1, p2)) %>%
+  annotate_figure(
+    top = text_grob("Distribución residuos", size = 15, face = "bold")
+  )
+```
+
+
+
+# Conclusions:
+
+In Regression models the metrics shows a better result with the model **Random Forest** with an rmse of 29304.98	whereas **Decision Tree** has an rmse of 42820.28. The model should be adjusted better in order to get a lower rmse.
+
+
+
 
