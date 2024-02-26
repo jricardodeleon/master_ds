@@ -1,0 +1,391 @@
+---
+title: "AMES H2O Regression Model"
+author: "Ricardo De León Flores."
+date: "Date: `r format(Sys.Date(), '%d de %B de %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(h2o)
+library(ggplot2)
+```
+
+# Introduction 
+
+**H2O** is a powerful open-source platform for machine learning and predictive analytics, designed for handling big data efficiently.
+
+Built in Java, it employs distributed computing techniques, utilizing a Distributed Key/Value store and a Map/Reduce framework for scalability and speed.
+
+Data is stored in memory in a compressed columnar format, enabling fast parallel processing.
+
+H2O offers a REST API for easy access to its capabilities, utilized by its web interface, R binding, and Python binding.
+
+With its support for various cutting-edge algorithms like Deep Learning and Tree Ensembles, H2O is highly valued for its speed, quality, and ease of use in deploying models.
+
+Licensed under Apache License, Version 2.0, it's a sought-after tool for big data science.
+
+For this example we will use **AMES** dataset in order to demonstrate how **h2o** works with libraries simmilar as the libraries we have been working with.
+
+## **Initialiacion**
+
+```{r}
+h2o.init(ip="localhost",
+         #-1 uses all available cores
+         nthreads = -1,
+         # max mem
+         max_mem_size= "8g")
+
+h2o.removeAll()
+```
+
+## **Data Analysis**
+
+Dataset load
+
+```{r}
+# create a new ames working copy
+data <- data.frame(ames)
+
+# add the data to h2o
+datos_h2o <- as.h2o(x=data,destination_frame = "datos_h2o")
+h2o.no_progress()
+```
+
+
+Analysis
+
+```{r}
+#Dimensiones frame
+
+h2o.dim(datos_h2o)
+
+#Nombre de las columnas
+
+h2o.colnames(datos_h2o)
+
+h2o.describe(datos_h2o)
+```
+Variable predictora
+
+```{r}
+datos_h2o$Sale_Price
+```
+
+
+Grafica de Densidad
+
+```{r, warning=FALSE}
+# Convertir Sale_Price a un data frame
+sale_price <- as.data.frame(datos_h2o$Sale_Price)
+
+# Graficar el histograma de Sale_Price con línea de densidad
+ggplot(sale_price, aes(x = Sale_Price)) +
+  geom_histogram(binwidth = 50000, fill = "skyblue", color = "black", alpha = 0.7) + # alpha para transparencia
+  geom_density(aes(y = ..count.. * 50000), fill = "orange", alpha = 0.4) +  # Línea de densidad
+  labs(x = "Sale Price", y = "Frequency", title = "Histogram of Sale Prices") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## **Regression**
+
+Data preparation split
+```{r}
+#Split de los datos
+
+#Train 60% 
+#Validacion 20%
+#Test 20%
+
+h2o.dim(datos_h2o)
+
+split_h2o <- h2o.splitFrame(data=datos_h2o,ratios = c(0.6,.2),seed = 123)
+
+train_h2o <- h2o.assign(data = split_h2o[[1]],key="train_h2o") #Train 60%
+h2o.dim(train_h2o)
+
+validation_h2o <- h2o.assign(data = split_h2o[[2]],key="validation_h2o") #Validacion 20%
+h2o.dim(validation_h2o)
+
+test_h2o <- h2o.assign(data = split_h2o[[3]],key="test_h2o") #Test 20%
+h2o.dim(test_h2o)
+```
+
+## **Model Random Forest**
+
+### **Optimization**
+```{r}
+# Optimizacion
+
+# Definimos el grid
+
+hypergrid_RF <- list(ntrees = seq(50,500, by=50), # Numero de aarboles
+                     mtries = seq(4,5, by=1) # Number de variables que se eligen en cada arbol
+)
+```
+
+
+### **Grid Definition**
+
+```{r}
+
+grid_RF <- h2o.grid(
+  # definimos el algoritmo
+  algorithm = "randomForest",
+  # variable de respuesta
+  y = 1,
+  # predictores
+  x = c(2:16),
+  # datos de entrenamiento
+  training_frame = train_h2o,
+  # datos de validacion
+  validation_frame = validation_h2o,
+  # preprocesado (varianza cero) quitar todas las variavle que no tengan cambios o que sean constates
+  ignore_const_cols=TRUE,
+  # merica optimizacion
+  stopping_metric = "RMSE",
+  # hiperparametros
+  hyper_params = hypergrid_RF,
+  # tipo de busqueda
+  search_criteria = list(strategy="Cartesian"),
+  seed=123,
+  grid_id = "grid_RF"
+)
+```
+
+### ***Results***
+
+```{r}
+res_grid_RF <- h2o.getGrid(grid_id = "grid_RF", 
+                           sort_by = "RMSE", 
+                           decreasing = FALSE)
+
+res_grid_RF
+```
+Now we save the best model in a variable
+
+```{r}
+best_model_rf_id = res_grid_RF@model_ids[[1]] # el mejor modelo es el 1 por que asi lo pusimos a la hora de hacer el resumen decreasing
+
+
+# guardar el mejor modelo basado en la metrica rmse del train
+best_model_rf <- h2o.getModel(best_model_rf_id) 
+
+```
+
+### ***Hyperparameters***
+
+```{r}
+# Seleccionamos los mejores hyperparametros
+best_hyperparameters <- grid_RF@summary_table[grid_RF@summary_table$model_id== best_model_rf_id,]
+
+# seleccionamos del error rmse
+validation_error <- best_model_rf@model$validation_metrics@metrics$RMSE
+
+# tambien r2
+validation_r2 <- best_model_rf@model$validation_metrics@metrics$r2
+
+best_hyperparameters
+validation_error
+validation_r2
+
+```
+### ***Prediction***
+
+```{r}
+# prediccion
+pred_RF <- h2o.predict(best_model_rf, test_h2o)
+
+# error del test
+rmse_test_rf <- h2o.performance(model = best_model_rf, newdata = test_h2o)@metrics$RMSE
+rmse_test_rf
+```
+
+### ***Comparison***
+
+```{r}
+# tomar los precios actulaes
+curr_price <- as.data.frame(test_h2o$Sale_Price)
+
+# precios actuales vs predicted
+comparison_rf <- cbind(curr_price, as.data.frame(pred_RF$predict))
+
+# nombre de columnas
+colnames(comparison_rf) <- c("curr_price", "predicted_price")
+
+# Grafica
+ggplot(comparison_rf, aes(x = curr_price, y = predicted_price)) +
+  geom_point(aes(color = "Current Price"), alpha = 0.5) + 
+  geom_point(aes(y = predicted_price, color = "Predicted Price"), alpha = 0.5) +  # 
+  geom_abline(slope = 1, intercept = 0, color = "red") + 
+  labs(x = "Current Price", y = "Predicted Price", color = "Legend") +  
+  scale_color_manual(values = c("Current Price" = "blue", "Predicted Price" = "green")) +  # 
+  ggtitle("Comparison of Current Price and Predicted Prices") +
+  theme_minimal()
+
+```
+
+### ***Performance***
+
+```{r}
+test_performance_rf <- h2o.performance(model = best_model_rf, newdata = test_h2o)
+
+# Extract the RMSE and R2 from the test_performance object
+test_metrics_rf <- list(
+  RMSE = h2o.rmse(test_performance_rf),
+  R2 = h2o.r2(test_performance_rf)
+)
+
+test_metrics_rf
+```
+## **Generalized Linear Model (GLM)**
+
+### ***Optimization***
+
+```{r}
+# Definir el grid de búsqueda de hiperparámetros
+hyper_params_glm <- list(
+  alpha = seq(0, 1, by = 0.1),  # Coeficiente de regularización L1
+  lambda = seq(0.0001, 0.1, by = 0.001)  # Coeficiente de regularización L2
+)
+```
+
+
+### ***Grid Definition***
+
+```{r}
+
+# Definir los predictores y la variable de respuesta
+predictors_glm <- setdiff(h2o.colnames(train_h2o), "Sale_Price")  # Ajustar según tus nombres de columnas
+response_glm <- "Sale_Price"
+
+# Crear el grid de búsqueda
+grid_glm <- h2o.grid(
+  algorithm = "glm",
+  grid_id = "grid_glm",
+  x = predictors_glm,
+  y = response_glm,
+  training_frame = train_h2o,
+  validation_frame = validation_h2o,
+  family = "gaussian",  # Para regresión lineal
+  hyper_params = hyper_params_glm,
+  ignore_const_cols=TRUE,
+  stopping_metric = "MSE"
+)
+
+```
+
+### ***Results***
+
+```{r}
+# resultados del grid 
+res_grid_glm <- h2o.getGrid(grid_id = "grid_glm", 
+                           sort_by = "MSE", 
+                           decreasing = FALSE)
+
+res_grid_glm
+```
+Now save the best model in a variable
+
+```{r}
+# Obtener el mejor modelo del grid
+best_glm_model_id <- grid_glm@model_ids[[1]]
+best_glm_model <- h2o.getModel(best_glm_model_id)
+best_glm_model
+```
+
+### ***Hyperparameters***
+
+```{r}
+# Seleccionamos los mejores hyperparametros
+best_hyperparameters_glm <- grid_glm@summary_table[grid_glm@summary_table$model_id == best_glm_model_id,]
+
+# seleccionamos del error rmse
+validation_error_glm <- best_glm_model@model$validation_metrics@metrics$MSE
+
+# tambien r2
+validation_rmse_glm <- best_model_rf@model$validation_metrics@metrics$RMSE
+
+best_hyperparameters_glm
+validation_error_glm
+validation_rmse_glm
+
+```
+
+### ***Prediction***
+
+```{r}
+# prediccion
+pred_glm <- h2o.predict(best_glm_model, test_h2o)
+
+# error del test #MSE
+mse_test_glm <- h2o.performance(model = best_glm_model, newdata = test_h2o)@metrics$MSE
+mse_test_glm
+
+# error del test #MSE
+rmse_test_glm <- h2o.performance(model = best_glm_model, newdata = test_h2o)@metrics$RMSE
+rmse_test_glm
+```
+
+
+### ***Comparison***
+
+```{r}
+# tomar los precios actulaes
+curr_price <- as.data.frame(test_h2o$Sale_Price)
+
+# precios actuales vs predicted
+comparison_glm <- cbind(curr_price, as.data.frame(pred_glm$predict))
+
+# nombre de columnas
+colnames(comparison_rf) <- c("curr_price", "predicted_price_glm")
+
+# Grafica
+ggplot(comparison_rf, aes(x = curr_price, y = predicted_price_glm)) +
+  geom_point(aes(color = "Current Price"), alpha = 0.5) + 
+  geom_point(aes(y = predicted_price_glm, color = "Predicted Price GLM"), alpha = 0.5) +  # 
+  geom_abline(slope = 1, intercept = 0, color = "red") + 
+  labs(x = "Current Price", y = "Predicted Price GLM", color = "Legend") +  
+  scale_color_manual(values = c("Current Price" = "blue", "Predicted Price GLM" = "green")) +  # 
+  ggtitle("Current Price vs Predicted Prices GLM") +
+  theme_minimal()
+
+```
+
+### ***Performance***
+
+```{r}
+test_performance_glm <- h2o.performance(model = best_glm_model, newdata = test_h2o)
+
+# Extract the RMSE and R2 from the test_performance object
+test_metrics_glm <- list(
+  RMSE = h2o.rmse(test_performance_glm),
+  MSE = h2o.r2(test_performance_glm)
+)
+
+test_metrics_glm
+```
+
+# Conclusion
+
+Based on the provided parameters for the regression models:
+
+**Random Forest**:
+
+RMSE: 0.01971579
+MSE: 0.9984785
+
+**Generalized Linear Model (GLM)**:
+
+RMSE: 27073.18
+MSE: 0.8864252
+
+It's evident that the Random Forest model outperforms the Generalized Linear Model (GLM) in terms of both RMSE and MSE. The Random Forest model has significantly lower RMSE and MSE values compared to the GLM model. This suggests that the Random Forest model provides better predictive performance for the given regression task.
+
+However, it's important to note that the interpretation of the RMSE and MSE values should be done cautiously, considering the specific context of the problem and the units of the target variable. Additionally, other factors such as model complexity, computational resources, and interpretability may also influence the choice of the regression model. Therefore, it's recommended to consider a holistic evaluation of the models before drawing conclusions or making decisions.
